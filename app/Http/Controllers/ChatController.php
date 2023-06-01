@@ -12,25 +12,52 @@ use Illuminate\Support\Facades\Storage;
 
 class ChatController extends Controller
 {
+    protected $fastApiUrl;
+
+    public function __construct()
+    {
+        $this->fastApiUrl = env('FAST_API_URL');
+    }
+
     public function index()
     {
         $chats = Chat::all();
         return view('chat', ['chats' => $chats]);
     }
 
-
     public function processPrompt(Request $request)
     {
         // dd($request->all());
         $request->validate([
-            'file' => 'required|mimes:pdf',
+            'file' => 'required|mimes:pdf,csv',
             'question' => 'required|string',
         ]);
 
         $file = $request->file('file');
         $question = $request->input('question');
 
-         if (strpos($file->getClientOriginalName(), ' ') !== false) {
+        if ($file->getClientOriginalExtension() != 'pdf') {
+            $this->processPromptCsv($file, $question);
+        } else {
+            $this->processPromptPdf($file, $question);
+        }
+
+        return redirect()->route('chat.index')->with('success', 'Chat saved successfully');
+    }
+
+
+    /**
+     * Process a prompt Pdf using the FastAPI endpoint
+     *
+     * @param Request $request
+     * @return void
+     */
+    public function processPromptPdf($pdf = null, $question = null)
+    {
+        $file = $pdf;
+        $question = $question;
+
+        if (strpos($file->getClientOriginalName(), ' ') !== false) {
             $file_name = str_replace(' ', '_', $file->getClientOriginalName());
         } else {
             $file_name = $file->getClientOriginalName();
@@ -39,7 +66,7 @@ class ChatController extends Controller
         if ($file->getClientOriginalExtension() != 'pdf') {
             return redirect()->route('chat.index')->with('error', 'Only PDF files are allowed');
         }
-        
+
 
         // Move the uploaded file to a temporary directory
         $filePath = $file->storeAs('uploads', $file_name, 'public');
@@ -50,25 +77,19 @@ class ChatController extends Controller
             'prompt' => $question,
         ]);
 
-
         // Send the file and question to the FastAPI endpoint
         $fileContent = file_get_contents($file->path());
-        // dd($fileContent);
+
         $response = Http::attach(
             'file',
             $fileContent,
             $file_name
-        )->timeout(60)->post('http://localhost:8002/process_prompt', [
+        )->timeout(60)->post($this->fastApiUrl . '/pdf', [
             'prompt' => $question,
         ]);
 
-        // dd($response->json());
-
-
         // Delete the temporary file
         Storage::delete($filePath);
-
-
 
         // Handle the response from the FastAPI endpoint
         if ($response->failed()) {
@@ -92,92 +113,70 @@ class ChatController extends Controller
         return redirect()->route('chat.index')->with('success', 'Chat saved successfully');
     }
 
+    /**
+     * Process a prompt CSV using the FastAPI endpoint
+     *
+     * @param Request $request
+     * @return void
+     */
+    public function processPromptCsv($CSV = null, $question = null)
+    {
+        $file = $CSV;
+        $question = $question;
+
+        if (strpos($file->getClientOriginalName(), ' ') !== false) {
+            $file_name = str_replace(' ', '_', $file->getClientOriginalName());
+        } else {
+            $file_name = $file->getClientOriginalName();
+        }
+
+        if ($file->getClientOriginalExtension() != 'csv') {
+            return redirect()->route('chat.index')->with('error', 'Only CSV files are allowed');
+        }
 
 
+        // Move the uploaded file to a temporary directory
+        $filePath = $file->storeAs('uploads', $file_name, 'public');
+        // $fileContent = file_get_contents(storage_path('app/public/' . $filePath));
 
-    // public function heavy(Request $request)
-    // {
-    //     $file = $request->file('file');
+        Log::info('Sending request', [
+            'file' => $file_name,
+            'prompt' => $question,
+        ]);
 
-    //     $messages = [
-    //         [
-    //             "role" => "system",
-    //             "content" => "You are a helpful assistant."
-    //         ],
-    //         [
-    //             "role" => "user",
-    //             "content" => "How many players are there in the dataset?"
-    //         ]
-    //     ];
+        // Send the file and question to the FastAPI endpoint
+        $fileContent = file_get_contents($file->path());
 
-    //     $response = Http::attach(
-    //         'file',
-    //         file_get_contents($file),
-    //         'mlb_players.csv'
-    //     )->post('http://127.0.0.1:8098/heavy' . $request->path(), [
-    //         'columnData' => json_encode([
-    //             'Name' => 'string',
-    //             'Team' => 'string',
-    //             'Position' => 'string',
-    //             'Height(inches)' => 'integer',
-    //             'Weight(lbs)' => 'integer',
-    //             'Age' => 'integer',
-    //         ]),
-    //         'messages' => json_encode($messages),
-    //         'model' => 'GPT-4',
-    //         'lang' => 'en',
-    //         'allowLogging' => true,
-    //     ]);
+        $response = Http::attach(
+            'file',
+            $fileContent,
+            $file_name
+        )->timeout(60)->post($this->fastApiUrl . '/csv', [
+            'prompt' => $question,
+        ]);
 
-    //     $responseData = json_decode($response->body(), true);
+        // Delete the temporary file
+        Storage::delete($filePath);
 
-    //     dd($responseData);
+        // Handle the response from the FastAPI endpoint
+        if ($response->failed()) {
+            // Handle the error response
+            throw new Exception('Failed to process prompt');
+        }
 
-    //     return response()->json($responseData);
-    // }
+        $responseData = $response->json();
 
-    // public function heavy(Request $request)
-    // {
-    //     // dd($request->all());
+        if ($response->successful()) {
+            $responseData = $response->json();
 
-    //     $file = $request->file('file');
-    //     $fileName = $file->getClientOriginalName();
+            $chat = new Chat;
+            $chat->question = $question;
+            $chat->file_name = $file->getClientOriginalName();
+            $chat->response = json_encode($responseData['table']);
+            $chat->search_results = json_encode($responseData['search_results']);
+            $chat->save();
+        }
 
-    //     // Assuming the file should be stored in a local public disk
-    //     $filePath = $file->storeAs('uploads', $fileName, 'public');
-
-    //     // Get the file content
-    //     $fileContent = file_get_contents($file->getRealPath());
-
-    //     // Fix the formatting of the messages field
-    //     $messages = ['text' => $request->input('message')];
-
-    //     $response = Http::asMultipart()->post('http://127.0.0.1:8098/heavy', [
-    //         'columnData' => json_encode([
-    //             'Name' => 'string',
-    //             'Team' => 'string',
-    //             'Position' => 'string',
-    //             'Height(inches)' => 'integer',
-    //             'Weight(lbs)' => 'integer',
-    //             'Age' => 'integer',
-    //         ]),
-    //         // Ensure the messages field is properly formatted
-    //         'messages' => json_encode($messages),
-    //         'model' => $request->input('model'),
-    //         'lang' => 'python',
-    //         'allowLogging' => true,
-    //         'file' => [
-    //             'name'     => $fileName,
-    //             'contents' => $fileContent,
-    //             'filename' => $fileName,
-    //         ],
-    //     ]);
-
-    //     $responseData = json_decode($response->body(), true);
-
-    //     dd($responseData);
-
-    //     return response()->json($responseData);
-    // }
-
+        return redirect()->route('chat.index')->with('success', 'Chat saved successfully');
+    }
 }
