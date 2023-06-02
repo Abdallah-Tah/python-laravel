@@ -8,7 +8,7 @@ from langchain.agents.agent_toolkits import create_vectorstore_agent, VectorStor
 import pandas as pd
 
 # Set API key for OpenAI Service
-os.environ['OPENAI_API_KEY'] = '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'
+os.environ['OPENAI_API_KEY'] ='sk-xxxxxx'
 
 # Create instance of OpenAI LLM
 llm = OpenAI(temperature=0.1, verbose=True)
@@ -146,4 +146,4 @@ async def process_prompt_csv(prompt: str = Form(...), file: UploadFile = File(..
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="127.0.0.1", port=8002)
+    uvicorn.run(app, host="127.0.0.1", port=8888)

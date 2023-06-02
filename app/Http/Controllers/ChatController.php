@@ -28,6 +28,15 @@ class ChatController extends Controller
     public function processPrompt(Request $request)
     {
         // dd($request->all());
+
+        $isRunning = $this->checkPythonScript();
+
+        if($isRunning == false) {
+            $this->runPythonScript();
+        }else {
+            return redirect()->route('chat.index')->with('error', 'A process is already running');
+        }
+
         $request->validate([
             'file' => 'required|mimes:pdf,csv',
             'question' => 'required|string',
@@ -67,7 +76,7 @@ class ChatController extends Controller
             return redirect()->route('chat.index')->with('error', 'Only PDF files are allowed');
         }
 
-
+        // dd($file_name, $this->fastApiUrl);
         // Move the uploaded file to a temporary directory
         $filePath = $file->storeAs('uploads', $file_name, 'public');
         // $fileContent = file_get_contents(storage_path('app/public/' . $filePath));
@@ -84,10 +93,10 @@ class ChatController extends Controller
             'file',
             $fileContent,
             $file_name
-        )->timeout(60)->post($this->fastApiUrl . '/pdf', [
+        )->timeout(60)->post($this->fastApiUrl . '/process/pdf/', [
             'prompt' => $question,
         ]);
-
+        // dd($response);
         // Delete the temporary file
         Storage::delete($filePath);
 
@@ -151,7 +160,7 @@ class ChatController extends Controller
             'file',
             $fileContent,
             $file_name
-        )->timeout(60)->post($this->fastApiUrl . '/csv', [
+        )->timeout(60)->post($this->fastApiUrl . '/process/csv/', [
             'prompt' => $question,
         ]);
 
@@ -168,15 +177,69 @@ class ChatController extends Controller
 
         if ($response->successful()) {
             $responseData = $response->json();
+            Log::info('Response Data:', ['data' => $responseData]);
 
             $chat = new Chat;
             $chat->question = $question;
             $chat->file_name = $file->getClientOriginalName();
-            $chat->response = json_encode($responseData['table']);
-            $chat->search_results = json_encode($responseData['search_results']);
+            //[2023-06-02 13:29:14] local.INFO: Response Data: {"data":{"response":"The dataframe contains 1034 rows and 6 columns. The columns are Name (object), Team (object), Position (object), Height (int64), Weight (int64), and Age (float64). The summary statistics of each column are count, mean, standard deviation, minimum, 25th percentile, 50th percentile, 75th percentile, and maximum."}} 
+
+            $chat->response = $responseData['response'];
+            //Undefined array key "search_results"
+            $chat->search_results = json_encode($responseData ?? []);
             $chat->save();
         }
 
         return redirect()->route('chat.index')->with('success', 'Chat saved successfully');
+    }
+
+    /**
+     * Run a python script before processing a prompt
+     *
+     * @param Request $request
+     * @return void
+     */
+    public function runPythonScript()
+    {
+        try {
+            $processName = 'python_script.py';
+            $command = "pgrep -f $processName";
+            exec($command, $output, $result);
+
+            if ($result == 0) {
+                // The script is running.
+            } else {
+                // The script is not running, so run it
+                $command = 'python ' . base_path() . '/python/app.py';
+                exec($command);
+            }
+        } catch (\Exception $e) {
+            Log::error($e->getMessage());
+        }
+    }
+
+    /**
+     * check if a python script is running or not
+     *
+     * @param Request $request
+     * @return void
+     */
+    public function checkPythonScript()
+    {
+        try {
+            $processName = 'python_script.py';
+            $command = "pgrep -f $processName";
+            exec($command, $output, $result);
+
+            if ($result == 0) {
+                // The script is running.
+                return true;
+            } else {
+                // The script is not running, so run it
+                return false;
+            }
+        } catch (\Exception $e) {
+            Log::error($e->getMessage());
+        }
     }
 }

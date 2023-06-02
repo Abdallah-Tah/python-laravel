@@ -30,32 +30,36 @@
 
 
         <div class="mt-4 flex flex-col space-y-4 items-start justify-start w-full">
-            @foreach($chats as $chat)
-            <h2>Question: {{ $chat->question }}</h2>
-            <table class="table">
-                <thead>
-                    <tr>
-                        @foreach($chat->responseArray['columns'] as $column)
-                            <th>{{ $column }}</th>
-                        @endforeach
-                    </tr>
-                </thead>
-                <tbody>
-                    @foreach($chat->responseArray['data'] as $row)
-                        <tr>
-                            @foreach($row as $value)
-                                <td>{{ $value }}</td>
+            @foreach ($chats as $chat)
+                @if (!$chat->responseArray)
+                    <div>
+                        <h2 class="font-bold" style="color: #1a202c;">
+                            {{ $chat->question }}</h2>
+                        <p class="text-sm text-gray-500 mt-2">
+                            {{ $chat->response }}</p>
+                        <p class="text-sm text-gray-500 mt-2">
+                            {{ $chat->created_at }}</p>
+                    </div>
+                @else
+                    <table class="table">
+                        <thead>
+                            <tr>
+                                @foreach ($chat->responseArray['columns'] as $column)
+                                    <th>{{ $column }}</th>
+                                @endforeach
+                            </tr>
+                        </thead>
+                        <tbody>
+                            @foreach ($chat->responseArray['data'] as $row)
+                                <tr>
+                                    @foreach ($row as $value)
+                                        <td>{{ $value }}</td>
+                                    @endforeach
+                                </tr>
                             @endforeach
-                        </tr>
-                    @endforeach
-                </tbody>
-            </table>
-        @endforeach
-        
+                        </tbody>
+                    </table>
+                @endif
+            @endforeach
         </div>
-
-
-
-
-    </div>
 </x-app-layout>
