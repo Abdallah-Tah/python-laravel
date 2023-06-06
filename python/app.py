@@ -8,7 +8,10 @@ from langchain.agents.agent_toolkits import create_vectorstore_agent, VectorStor
 import pandas as pd
 
 # Set API key for OpenAI Service
-os.environ['OPENAI_API_KEY'] ='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'
+import os
+
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
+
 
 # Create instance of OpenAI LLM
 llm = OpenAI(temperature=0.1, verbose=True)
