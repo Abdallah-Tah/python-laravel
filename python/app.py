@@ -1,152 +1,50 @@
 import os
-from fastapi import FastAPI, Form, HTTPException, UploadFile, File
-import logging
-from langchain.llms import OpenAI
-from langchain.document_loaders import PyPDFLoader
-from langchain.vectorstores import Chroma
-from langchain.agents.agent_toolkits import create_vectorstore_agent, VectorStoreToolkit, VectorStoreInfo, create_pandas_dataframe_agent
-import pandas as pd
+from typing import Dict, List
+from fastapi import FastAPI
+from dotenv import load_dotenv
+from langchain import HuggingFaceHub, PromptTemplate, LLMChain
+from typing import List, Dict
 
-# Set API key for OpenAI Service
-import os
+import uvicorn
 
-OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY')
-
-
-# Create instance of OpenAI LLM
-llm = OpenAI(temperature=0.1, verbose=True)
+# Load environment variables from .env file
+load_dotenv()
+huggingfacehub_api_token = os.getenv("HUGGINGFACEHUB_API_TOKEN")
 
 app = FastAPI()
+repo_id = "tiiuae/falcon-7b-instruct"
 
-@app.post("/process/pdf/")
-async def process_prompt(prompt: str = Form(...), file: UploadFile = File(...)):
-    try:
-        file_path = f'C:/laragon/www/python-laravel/public/storage/uploads/{file.filename}'
-        with open(file_path, 'wb') as f:
-            f.write(await file.read())
+# Initialize HuggingFaceHub instance
+llm = HuggingFaceHub(
+    huggingfacehub_api_token=huggingfacehub_api_token,
+    repo_id=repo_id,
+    model_kwargs={"temperature": 0.6, "max_new_tokens": 500}
+)
 
-        # Load the PDF file
-        loader = PyPDFLoader(file_path)
-        pages = loader.load_and_split()
+# Define the prompt template
+template = """
+You are an artificial intelligence assistant. The assistant gives helpful, detailed, and polite answers to the questions.
 
-        # Load documents into vector database aka ChromaDB
-        store = Chroma.from_documents(pages, collection_name=file.filename)
+{dialogue}
 
-        # Create vectorstore info object
-        vectorstore_info = VectorStoreInfo(
-            name=file.filename,
-            description="",
-            vectorstore=store
-        )
+Assistant:"""
 
-        # Convert the document store into a langchain toolkit
-        toolkit = VectorStoreToolkit(vectorstore_info=vectorstore_info)
 
-        # Add the toolkit to an end-to-end LC
-        agent_executor = create_vectorstore_agent(
-            llm=llm,
-            toolkit=toolkit,
-            verbose=True
-        )
+# Initialize PromptTemplate and LLMChain instances
+prompt = PromptTemplate(template=template, input_variables=["dialogue"])
+llm_chain = LLMChain(prompt=prompt, llm=llm)
 
-        # Pass the prompt to the LLM
-        response = agent_executor.run(prompt)
-
-        # Find the relevant pages
-        search = store.similarity_search_with_score(prompt)
-        search_results = [result[0].page_content for result in search]
-
-        return {"response": response, "search_results": search_results}
-    except Exception as e:
-        logging.error("Failed to process prompt: %s", e)
-        raise
-
-def csv_tool(filename : str):
-    try:
-        df = pd.read_csv(filename)
-    except Exception as e:
-        logging.error("Failed to read CSV file: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to read CSV file.")
-
-    return create_pandas_dataframe_agent(OpenAI(temperature=0), df, verbose=True)
-
-def ask_agent(agent, query):
-    prompt = (
-        """
-        Let's decode the way to respond to the queries. The responses depend on the type of information requested in the query...
-        """
-        + query
-    )
+@app.post("/process/chatbot")
+async def generate_response(data: Dict[str, List[Dict[str, str]]]):
+    dialogue = data.get("dialogue")
+    formatted_dialogue = "\n".join([f"{turn['role']}: {turn['content']}" for turn in dialogue])
+    response = llm_chain.run(formatted_dialogue)
     
-    try:
-        response = agent.run(prompt)
-    except Exception as e:
-        logging.error("Failed to run prompt: %s", e)
-        raise HTTPException(status_code=500, detail="Failed to run prompt.")
-        
-    return str(response)
+    # Remove trailing "user:"
+    #response = response.rstrip("user:")
 
-@app.post("/process/csv/")
-async def process_prompt_csv(prompt: str = Form(...), file: UploadFile = File(...)):
-    try:
-        file_path = f'C:/laragon/www/python-laravel/public/storage/uploads/{file.filename}'
-        with open(file_path, 'wb') as f:
-            f.write(await file.read())
-
-        agent = csv_tool(file_path)
-        response = ask_agent(agent, prompt)
-
-        return {"response": response}
-    except Exception as e:
-        logging.error("Failed to process CSV file: %s", e)
-        raise
-
-# @app.post("/process/csv/")
-# async def process_prompt_csv(prompt: str = Form(...), file: UploadFile = File(...)):
-#     try:
-#         file_path = f'C:/laragon/www/python-laravel/public/storage/uploads/{file.filename}'
-#         with open(file_path, 'wb') as f:
-#             f.write(await file.read())
-
-#         # Load the CSV file
-#         df = pd.read_csv(file_path)
-
-#         # Convert the DataFrame to a list of strings (one for each row)
-#         rows = df.apply(lambda row: ', '.join(row.astype(str)), axis=1).tolist()
-
-#         # Load documents into vector database aka ChromaDB
-#         store = Chroma.from_documents(rows, collection_name=file.filename)
-       
-#         # Create vectorstore info object
-#         vectorstore_info = VectorStoreInfo( 
-#             name=file.filename,
-#             description="",
-#             vectorstore=store
-#         )
-
-#         # Convert the document store into a langchain toolkit
-#         toolkit = VectorStoreToolkit(vectorstore_info=vectorstore_info)
-
-#         # Add the toolkit to an end-to-end LC
-#         agent_executor = create_vectorstore_agent(
-#             llm=llm,
-#             toolkit=toolkit,
-#             verbose=True
-#         )
-
-#         # Pass the prompt to the LLM
-#         response = agent_executor.run(prompt)
-
-#         # Find the relevant pages
-#         search = store.similarity_search_with_score(prompt)
-#         search_results = [result[0].page_content for result in search]
-
-#         return {"response": response, "search_results": search_results}
-#     except Exception as e:
-#         logging.error("Failed to process prompt: %s", e)
-#         raise
+    return {"assistant": response}
 
 
 if __name__ == "__main__":
-    import uvicorn
     uvicorn.run(app, host="127.0.0.1", port=8888)

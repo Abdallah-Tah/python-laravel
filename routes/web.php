@@ -36,7 +36,7 @@ Route::middleware('auth')->group(function () {
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
     Route::get('chat', [ChatController::class, 'index'])->name('chat.index');
-Route::post('process/prompt', [ChatController::class, 'processPrompt'])->name('process.prompt');
+Route::post('chatbot', [ChatController::class, 'chat'])->name('process.chat');
 });
 
 
